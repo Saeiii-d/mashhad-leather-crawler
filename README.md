@@ -101,4 +101,4 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
    Copyright (c) 2026 Saeid Khazaei  
    Shahid Beheshti University (SBU)
 
-   See the [LICENSE](./LICENSE) file for details.
+   See the [LICENSE](./LICENSE.txt) file for details.

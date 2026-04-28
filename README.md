@@ -72,7 +72,7 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
         "kv_store_name": "_kv_store",
     }
    ```
-   If `config.json` or config.yaml exists, it will override or extend these defaults.
+   If `config.json` or `config.yaml` exists, it will override or extend these defaults.
 
 ## Project Structure
    ```text
@@ -92,7 +92,7 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
    - **CLI**: rich (for pretty terminal output)
 
 ## Author
-   - **GitHub**: https://github.com/Saeiii-d/mashhad-leather-crawler
+   - **GitHub**: https://github.com/Saeiii-d
    - **LinkedIn**: https://ir.linkedin.com/in/saeid-khazaei-a14b52406
 
 ## License

@@ -170,7 +170,6 @@ class MashhadLeather:
         
         self._setup_logger()
         self._register_routes()
-        self.category_pages = 0
 
     def _setup_logger(self) -> None:
         """
@@ -260,7 +259,6 @@ class MashhadLeather:
                         
                         temp_div.decompose()
                         logger.info(f"Enqueued {len(pagination_urls)} pagination URLs")
-                        self.category_pages += len(pagination_urls)
                     except Exception as e:
                         logger.error(f"Failed to enqueue pagination URLs: {e}")
 
@@ -671,7 +669,6 @@ class MashhadLeather:
             await crawler.run(self.CONFIG["start_urls"])
             
             logger.info("Crawling finished successfully.")
-            logger.info(f"Total category pages processed: {self.category_pages}")
             
         except Exception as e:
             console.print(Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"))

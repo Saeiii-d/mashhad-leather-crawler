@@ -86,10 +86,10 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
 
    To ensure data integrity and high performance, this project implements a multi-layered extraction strategy:
 
-   * [cite_start]**Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs. [cite: 1, 3]
-   * [cite_start]**Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors. [cite: 1, 3]
-   * **Dynamic API Interception**: Uses `aiohttp` to directly target internal API endpoints (`ChangePriceByColor`, `GetSizesForColor`). [cite_start]This bypasses the need for complex DOM manipulation for real-time price and stock levels. [cite: 1, 3]
-   * [cite_start]**Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable. [cite: 1, 3]
+   * **Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs. 
+   * **Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors. 
+   * **Dynamic API Interception**: Uses `aiohttp` to directly target internal API endpoints (`ChangePriceByColor`, `GetSizesForColor`). This bypasses the need for complex DOM manipulation for real-time price and stock levels. 
+   * **Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable. 
 
 
 ## Tech Stack

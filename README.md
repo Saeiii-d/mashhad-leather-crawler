@@ -7,8 +7,8 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
 
 ## Features
 
-- **Asynchronous Crawling**: Built on `crawlee` for high-performance, concurrent scraping.
-- **Dynamic Data Extraction**: Intercepts internal AJAX/API calls to fetch real-time prices and stock quantities for product variants (color/size).
+- **Asynchronous Crawling**: Built on `crawlee` for asynchronous and concurrent crawling.
+- **Dynamic Data Extraction**: Sends direct asynchronous requests to internal API endpoints to retrieve current prices and stock quantities for product variants.
 - **Image Handling**: Extracts main listing images and full gallery images, handling lazy-loading attributes.
 - **Pagination Support**: Automatically detects and crawls paginated category pages.
 - **Structured Storage**: Saves extracted records to a Crawlee Dataset and crawl metadata to a `KeyValueStore`.
@@ -92,7 +92,7 @@ To ensure data integrity and high performance, this project implements a multi-l
 
 - **Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs.
 - **Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors.
-- **Dynamic API Interception**: Uses `aiohttp` to directly target internal API endpoints (`ChangePriceByColor`, `GetSizesForColor`). This bypasses the need for complex DOM manipulation for real-time price and stock levels.
+- **Direct API Requests**: Uses `aiohttp` to request data from internal endpoints such as `ChangePriceByColor` and `GetSizesForColor`.
 - **Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable.
 
 ## Tech Stack

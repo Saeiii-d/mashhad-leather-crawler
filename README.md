@@ -1,6 +1,6 @@
 # Mashhad Leather Product Crawler
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Crawlee](https://img.shields.io/badge/Powered%20by-Crawlee-green.svg)](https://crawlee.dev/)
 
 An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to extract comprehensive product data from **Mashhad Leather**. It handles static HTML parsing for basic details and dynamic API calls for real-time pricing and stock levels.
@@ -11,7 +11,7 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
 - **Dynamic Data Extraction**: Intercepts internal AJAX/API calls to fetch real-time prices and stock quantities for product variants (color/size).
 - **Image Handling**: Extracts main listing images and full gallery images, handling lazy-loading attributes.
 - **Pagination Support**: Automatically detects and crawls paginated category pages.
-- **Structured Storage**: Saves data to `Dataset` (JSON/Parquet) and metadata to `KeyValueStore`.
+- **Structured Storage**: Saves extracted records to a Crawlee Dataset and crawl metadata to a `KeyValueStore`.
 - **Robust Logging**: Detailed logging via `loguru` with file rotation and console output.
 - **Error Handling**: Graceful fallbacks for missing data or API failures.
 
@@ -77,8 +77,6 @@ CONFIG = {
  }
 ```
 
-If `config.json` or `config.yaml` exists, it will override or extend these defaults.
-
 ## Project Structure
 
 ```text
@@ -109,7 +107,7 @@ To ensure data integrity and high performance, this project implements a multi-l
 ## Author
 
 - **GitHub**: https://github.com/Saeiii-d
-- **LinkedIn**: https://ir.linkedin.com/in/saeid-khazaei-a14b52406
+- **LinkedIn**: https://www.linkedin.com/in/saeidkhazaei/
 
 ## License
 

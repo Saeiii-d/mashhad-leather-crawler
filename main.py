@@ -30,6 +30,7 @@ from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse, urljoin, parse_qs, urlencode
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
+import hashlib
 
 import aiohttp
 from loguru import logger
@@ -354,9 +355,19 @@ class MashhadLeather:
                 if parts and re.match(r'^[A-Za-z0-9\-]+$', parts[-1]):
                     sku = parts[-1]
                 else:
-                    sku = "unknown_" + str(datetime.now().timestamp())
+                    normalized_url = remove_query_params(product_url).rstrip("/")
+                    fallback_hash = hashlib.sha256(
+                        normalized_url.encode("utf-8")
+                    ).hexdigest()[:16]
+
+                    sku = f"unknown_{fallback_hash}"
             else:
-                sku = "unknown_" + str(datetime.now().timestamp())
+                normalized_url = remove_query_params(product_url).rstrip("/")
+                fallback_hash = hashlib.sha256(
+                    normalized_url.encode("utf-8")
+                ).hexdigest()[:16]
+
+                sku = f"unknown_{fallback_hash}"
                 logger.warning(f"SKU not found in URL, meta, or text for: {product_url}")
 
         # --- 2. Extract Title ---

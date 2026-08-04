@@ -18,17 +18,20 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
 ## Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+
+- Python 3.10 or higher
 
 ### Setup
 
 1. **Clone the repository**
+
    ```bash
-   git clone https://github.com/your-username/mashhad-leather-crawler.git
+   git clone https://github.com/Saeiii-d/mashhad-leather-crawler
    cd mashhad-leather-crawler
    ```
 
 2. **Create a virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -42,73 +45,76 @@ An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to e
 ## Usage
 
 - Run the crawler from the terminal:
-   ```bash
-   python main.py
-   ```
 
-   By default, results are stored in Crawlee’s `Dataset` and `KeyValueStore` (e.g., under a `storage` directory, depending on your config).
-   You can limit the crawl scope using `max_requests` in the configuration (see below) for testing.
+  ```bash
+  python main.py
+  ```
+
+  By default, results are stored in Crawlee’s `Dataset` and `KeyValueStore` (e.g., under a `storage` directory, depending on your config).
+  You can limit the crawl scope using `max_requests` in the configuration (see below) for testing.
 
 ### Configuration
 
-   You can adjust the crawler behavior by editing the `CONFIG` dictionary in `main.py` or by providing a `config.json` or `config.yaml`.
-   
-   ```python
-   CONFIG = {
-        "max_requests": n,
-        "site_name": "site-name",
-        "start_urls": ["https://example.com/"],
-        
-        "selectors": {
-            # CSS Selectors for navigation and content extraction
-            "category_links": "",
-            "detail_links": "",
-            "sku": "", 
-            "title": "",
-            # you can add or remove things ...
-        },
-        
-        "dataset_name": "_dataset",
-        "kv_store_name": "_kv_store",
-    }
-   ```
-   If `config.json` or `config.yaml` exists, it will override or extend these defaults.
+You can adjust the crawler behavior by editing the CONFIG dictionary in main.py.
+
+```python
+CONFIG = {
+     "max_requests": n,
+     "site_name": "site-name",
+     "start_urls": ["https://example.com/"],
+
+     "selectors": {
+         # CSS Selectors for navigation and content extraction
+         "category_links": "",
+         "detail_links": "",
+         "sku": "",
+         "title": "",
+         # you can add or remove things ...
+     },
+
+     "dataset_name": "_dataset",
+     "kv_store_name": "_kv_store",
+ }
+```
+
+If `config.json` or `config.yaml` exists, it will override or extend these defaults.
 
 ## Project Structure
-   ```text
-   ├── main.py              # Main crawler script and logic
-   ├── requirements.txt     # Python dependencies
-   ├── LICENSE
-   └── README.md
-   ```
+
+```text
+├── main.py              # Main crawler script and logic
+├── requirements.txt     # Python dependencies
+├── LICENSE
+└── README.md
+```
 
 ## 🛠️ System Architecture
 
-   To ensure data integrity and high performance, this project implements a multi-layered extraction strategy:
+To ensure data integrity and high performance, this project implements a multi-layered extraction strategy:
 
-   * **Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs. 
-   * **Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors. 
-   * **Dynamic API Interception**: Uses `aiohttp` to directly target internal API endpoints (`ChangePriceByColor`, `GetSizesForColor`). This bypasses the need for complex DOM manipulation for real-time price and stock levels. 
-   * **Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable. 
-
+- **Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs.
+- **Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors.
+- **Dynamic API Interception**: Uses `aiohttp` to directly target internal API endpoints (`ChangePriceByColor`, `GetSizesForColor`). This bypasses the need for complex DOM manipulation for real-time price and stock levels.
+- **Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable.
 
 ## Tech Stack
 
-   - **Language**: Python 3.9+
-   - **Crawling Framework**: Crawlee (Python)
-   - **HTTP Client**: aiohttp (for async API requests)
-   - **HTML Parsing**: BeautifulSoup4
-   - **Logging**: loguru
-   - **CLI**: rich (for pretty terminal output)
+- **Language**: Python 3.10 or higher
+- **Crawling Framework**: Crawlee (Python)
+- **HTTP Client**: aiohttp (for async API requests)
+- **HTML Parsing**: BeautifulSoup4
+- **Logging**: loguru
+- **CLI**: rich (for pretty terminal output)
 
 ## Author
-   - **GitHub**: https://github.com/Saeiii-d
-   - **LinkedIn**: https://ir.linkedin.com/in/saeid-khazaei-a14b52406
+
+- **GitHub**: https://github.com/Saeiii-d
+- **LinkedIn**: https://ir.linkedin.com/in/saeid-khazaei-a14b52406
 
 ## License
 
-   This project is licensed under the MIT License.  
-   Copyright (c) 2026 Saeid Khazaei  
-   Shahid Beheshti University (SBU)
+This project is licensed under the MIT License.  
+ Copyright (c) 2026 Saeid Khazaei  
+ Shahid Beheshti University (SBU)
 
-   See the [LICENSE](./LICENSE.txt) file for details.
+See the [LICENSE](./LICENSE.txt) file for details.

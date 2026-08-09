@@ -82,7 +82,7 @@ CONFIG = {
 ```text
 ├── main.py              # Main crawler script and logic
 ├── requirements.txt     # Python dependencies
-├── LICENSE
+├── LICENSE.txt
 └── README.md
 ```
 

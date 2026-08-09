@@ -17,9 +17,9 @@ Features:
 
 Usage:
     Run this script directly to start the crawl. Ensure all dependencies
-    (crawlee, aiohttp, loguru, rich) are installed.
+    (crawlee, aiohttp, loguru, rich, beautifulsoup4) are installed.
 
-    -- pip install crawlee aiohttp loguru rich
+    -- pip install crawlee aiohttp loguru rich beautifulsoup4
 """
 
 import re
@@ -138,7 +138,7 @@ class MashhadLeather:
             "detail_links": "div.product-image a:first-of-type",
             "sku": "div.product-title h1 a",
             "title": "div.product-title h1 a",
-            "images": "div.col-md-6.gallery-shell div.product-image a img",
+            "images": "div.gallery-shell img, div.gallery-shell source, div.product-gallery img, div.product-gallery source, div.product-images img, div.product-images source",
             "category": "li.breadcrumb-item.active a",
             "description": "div.accordion div.accordion-content",
             "price": 'div.product-description div.product-price ins',
@@ -212,12 +212,89 @@ class MashhadLeather:
             @self.router.default_handler
             async def start_handler(context: BeautifulSoupCrawlingContext) -> None:
                 logger.info(f"Starting crawl from: {context.request.url}")
-                sel = self.CONFIG["selectors"]["category_links"]
+                primary_selector = self.CONFIG["selectors"]["category_links"]
+                category_links = context.soup.select(primary_selector)
+
+                if category_links:
+                    logger.info(
+                        f"Found {len(category_links)} category links "
+                        f"with the primary selector"
+                    )
+                    try:
+                        await context.enqueue_links(
+                            selector=primary_selector,
+                            label="CATEGORY",
+                            unique=True,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not enqueue category links on "
+                            f"{context.request.url}: {e}"
+                        )
+                    return
+
+                logger.warning(
+                    "Primary category selector found no links; "
+                    "trying URL-pattern fallback."
+                )
+
+                category_urls: List[str] = []
+                seen_urls = set()
+                expected_host = urlparse(self.base_url).netloc
+
+                for anchor in context.soup.select('a[href*="/category/"]'):
+                    href = anchor.get("href")
+                    if not href:
+                        continue
+
+                    absolute_url = urljoin(self.base_url, href)
+                    parsed = urlparse(absolute_url)
+
+                    if parsed.netloc != expected_host:
+                        continue
+
+                    path = parsed.path.rstrip("/")
+                    if not path.startswith("/category/"):
+                        continue
+
+                    last_part = path.split("/")[-1]
+                    if not last_part or last_part.isdigit():
+                        continue
+
+                    normalized = remove_query_params(absolute_url).rstrip("/")
+                    if normalized not in seen_urls:
+                        seen_urls.add(normalized)
+                        category_urls.append(normalized)
+
+                logger.info(
+                    f"Found {len(category_urls)} category links "
+                    f"with the fallback"
+                )
+
+                if not category_urls or not context.soup.body:
+                    logger.error("No category links were found on the start page.")
+                    return
+
+                temp_div = context.soup.new_tag(
+                    "div",
+                    **{"class": "temp-category-links"},
+                )
+                for url in category_urls:
+                    temp_div.append(context.soup.new_tag("a", href=url))
+
+                context.soup.body.append(temp_div)
                 try:
-                    # Enqueue all category links found on the start page
-                    await context.enqueue_links(selector=sel, label="CATEGORY", unique=True)
+                    await context.enqueue_links(
+                        selector="div.temp-category-links a",
+                        label="CATEGORY",
+                        unique=True,
+                    )
                 except Exception as e:
-                    logger.warning(f"Could not find category links on {context.request.url}: {e}")
+                    logger.warning(
+                        f"Could not enqueue fallback category links: {e}"
+                    )
+                finally:
+                    temp_div.decompose()
 
             # -------------------------------------------------------------
             # Route 2: Category Pages
@@ -225,424 +302,763 @@ class MashhadLeather:
             @self.router.handler("CATEGORY")
             async def category_handler(context: BeautifulSoupCrawlingContext) -> None:
                 logger.info(f"Processing category: {context.request.url}")
-                
-                # Handle Pagination
+
+                # Pagination
                 last_page_sel = self.CONFIG["selectors"].get("total_page")
                 last_page_el = context.soup.select_one(last_page_sel) if last_page_sel else None
-                last_page_num = int(last_page_el.get_text(strip=True)) if last_page_el else 1
-                
-                if last_page_num > 1:
-                    logger.info(f"Category '{context.request.url}' has pagination with {last_page_num} pages")
-                    
-                    parsed_url = urlparse(context.request.url)
-                    query_params = parse_qs(parsed_url.query)
-                    pagination_urls = []
-                    
-                    for page in range(1, last_page_num + 1):
-                        query_params["pageid"] = [str(page)]
-                        new_query = urlencode(query_params, doseq=True)
-                        pagination_urls.append(f"{self.base_url}?{new_query}")
-                    
-                    try:
-                        # Create a temporary container to hold pagination links for enqueueing
-                        temp_div = context.soup.new_tag('div', **{'class': 'temp-pagination-links'})
-                        for url in pagination_urls:
-                            link = context.soup.new_tag('a', href=url)
-                            link.string = f"Page {url.split('pageid=')[-1]}"  
-                            temp_div.append(link)
-                        
-                        context.soup.body.append(temp_div)
-                        
-                        await context.enqueue_links(
-                            selector='div.temp-pagination-links a',
-                            label="CATEGORY"
-                        )
-                        
-                        temp_div.decompose()
-                        logger.info(f"Enqueued {len(pagination_urls)} pagination URLs")
-                    except Exception as e:
-                        logger.error(f"Failed to enqueue pagination URLs: {e}")
+                last_page_num = 1
 
-                # Extract Product Links
-                sel = self.CONFIG["selectors"]["detail_links"]
-                all_product_links = context.soup.select(sel)
-                
-                for link_el in all_product_links:
-                    img_el = link_el.select_one("img")
-                    if img_el:
-                        # Get main image source (supports lazy loading data-src)
-                        listing_image = img_el.get("src") or img_el.get("data-src")
-                        
-                        if listing_image:
-                            # Convert relative URLs to absolute
-                            listing_image = urljoin(self.base_url, listing_image)
-                            
-                            # Get product URL from href, data-url, or data-href
-                            product_url = link_el.get("href") or link_el.get("data-url") or link_el.get("data-href")
-                            
-                            if product_url:
-                                product_url = urljoin(self.base_url, product_url)
-                                # Cache the listing image for potential future use
-                                self.listing_image_cache[product_url] = listing_image
-                
-                try:
-                    # Enqueue all product detail pages found in this category
-                    await context.enqueue_links(selector=sel, label="DETAIL", unique=True)
-                except Exception as e:
-                    logger.warning(f"Could not enqueue detail links: {e}")
+                if last_page_el:
+                    try:
+                        last_page_num = int(last_page_el.get_text(strip=True))
+                    except (TypeError, ValueError):
+                        logger.warning(f"Could not parse last page number on {context.request.url}")
+
+                parsed_url = urlparse(context.request.url)
+                query_params = parse_qs(parsed_url.query)
+                current_page_raw = query_params.get("pageid", ["1"])[0]
+                current_page = int(current_page_raw) if str(current_page_raw).isdigit() else 1
+
+                if last_page_num > 1 and current_page == 1:
+                    pagination_urls = []
+                    for page in range(2, last_page_num + 1):
+                        page_params = dict(query_params)
+                        page_params["pageid"] = [str(page)]
+                        new_query = urlencode(page_params, doseq=True)
+                        pagination_urls.append(parsed_url._replace(query=new_query).geturl())
+
+                    if pagination_urls and context.soup.body:
+                        temp_div = context.soup.new_tag("div", **{"class": "temp-pagination-links"})
+                        for url in pagination_urls:
+                            temp_div.append(context.soup.new_tag("a", href=url))
+                        context.soup.body.append(temp_div)
+                        try:
+                            await context.enqueue_links(
+                                selector="div.temp-pagination-links a",
+                                label="CATEGORY",
+                                unique=True,
+                            )
+                            logger.info(f"Enqueued {len(pagination_urls)} pagination URLs")
+                        except Exception as e:
+                            logger.warning(f"Failed to enqueue pagination URLs: {e}")
+                        finally:
+                            temp_div.decompose()
+
+                # Product links
+                primary_selector = self.CONFIG["selectors"]["detail_links"]
+                product_links = context.soup.select(primary_selector)
+                selector_to_enqueue = primary_selector
+                temp_product_div = None
+
+                if not product_links:
+                    logger.warning(
+                        f"Primary product selector found no products on {context.request.url}; trying URL fallback."
+                    )
+                    found_urls = []
+                    seen_urls = set()
+                    for anchor in context.soup.select('a[href*="/category/"]'):
+                        href = anchor.get("href")
+                        if not href:
+                            continue
+                        absolute_url = urljoin(self.base_url, href)
+                        path = urlparse(absolute_url).path.rstrip("/")
+                        last_part = path.split("/")[-1]
+                        if last_part.isdigit() and absolute_url not in seen_urls:
+                            seen_urls.add(absolute_url)
+                            found_urls.append(absolute_url)
+
+                    if found_urls and context.soup.body:
+                        temp_product_div = context.soup.new_tag("div", **{"class": "temp-product-links"})
+                        for url in found_urls:
+                            temp_product_div.append(context.soup.new_tag("a", href=url))
+                        context.soup.body.append(temp_product_div)
+                        selector_to_enqueue = "div.temp-product-links a"
+                        product_links = context.soup.select(selector_to_enqueue)
+
+                logger.info(f"Found {len(product_links)} product links on {context.request.url}")
+
+                # Cache listing images from category-page product cards.
+                for anchor in context.soup.select('a[href*="/category/"]'):
+                    href = anchor.get("href")
+                    if not href:
+                        continue
+
+                    product_url = urljoin(self.base_url, href)
+                    parsed_product_url = urlparse(product_url)
+                    path = parsed_product_url.path.rstrip("/")
+                    last_part = path.split("/")[-1]
+
+                    if (
+                        parsed_product_url.netloc
+                        != urlparse(self.base_url).netloc
+                        or not last_part.isdigit()
+                    ):
+                        continue
+
+                    listing_image = self._find_product_image_near_anchor(anchor)
+                    if listing_image:
+                        cache_key = remove_query_params(
+                            product_url
+                        ).rstrip("/")
+                        self.listing_image_cache[cache_key] = listing_image
+
+                if product_links:
+                    try:
+                        await context.enqueue_links(
+                            selector=selector_to_enqueue,
+                            label="DETAIL",
+                            unique=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not enqueue detail links: {e}")
+                else:
+                    logger.warning(f"No product links found on category: {context.request.url}")
+
+                if temp_product_div:
+                    temp_product_div.decompose()
 
             # -------------------------------------------------------------
             # Route 3: Product Detail Pages
             # -------------------------------------------------------------
             @self.router.handler("DETAIL")
-            async def detail_handler(context: BeautifulSoupCrawlingContext) -> None:
+            async def detail_handler(
+                context: BeautifulSoupCrawlingContext,
+            ) -> None:
                 logger.info(f"Processing product: {context.request.url}")
+
                 try:
-                    # Extract structured data from the page
                     data = await self._extract_product_data(context)
-                    
-                    # Save to Crawlee Dataset
                     await self.dataset.push_data(asdict(data))
-                    
-                    # Save metadata to Key-Value Store (useful for status tracking)
-                    await self.kv_store.set_value(data.sku, {
-                        "status": "crawled", 
-                        "url": data.url,
-                        "timestamp": str(datetime.utcnow())
-                    })
-                    
-                    logger.info(f"Saved SKU: {data.sku} with {len(data.variants)} variants")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing product {context.request.url}: {e}", exc_info=True)
+                except Exception:
+                    logger.exception(
+                        f"Failed to extract/store product "
+                        f"{context.request.url}"
+                    )
+                    raise
+
+                try:
+                    await self.kv_store.set_value(
+                        data.sku,
+                        {
+                            "status": "crawled",
+                            "url": data.url,
+                            "timestamp": str(datetime.utcnow()),
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Could not store crawl metadata for SKU {data.sku}"
+                    )
+
+                logger.info(
+                    f"Saved SKU: {data.sku} "
+                    f"with {len(data.variants)} variants"
+                )
+
+    def _image_url_from_element(self, element) -> Optional[str]:
+        """
+        Return the best image URL exposed by an <img> or <source> element.
+        """
+        if not element:
+            return None
+
+        for attr in (
+            "data-zoom-image",
+            "data-large",
+            "data-original",
+            "data-lazy-src",
+            "data-src",
+            "src",
+        ):
+            value = element.get(attr)
+            if value and isinstance(value, str):
+                value = value.strip()
+                if value and not value.startswith("data:"):
+                    return urljoin(self.base_url, value)
+
+        for attr in ("data-srcset", "srcset"):
+            value = element.get(attr)
+            if not value or not isinstance(value, str):
+                continue
+
+            candidates = []
+            for item in value.split(","):
+                url_part = item.strip().split(" ")[0].strip()
+                if url_part and not url_part.startswith("data:"):
+                    candidates.append(url_part)
+
+            if candidates:
+                return urljoin(self.base_url, candidates[-1])
+
+        return None
+
+    def _image_url_from_style(self, element) -> Optional[str]:
+        """
+        Extract a background-image URL from an element's inline style.
+        """
+        if not element:
+            return None
+
+        style = element.get("style")
+        if not style or not isinstance(style, str):
+            return None
+
+        match = re.search(
+            r"background-image\s*:\s*url\(\s*['\"]?([^'\")]+)['\"]?\s*\)",
+            style,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        candidate = match.group(1).strip()
+        if not candidate or candidate.startswith("data:"):
+            return None
+
+        return urljoin(self.base_url, candidate)
+
+    def _is_product_image_url(self, url: str) -> bool:
+        """
+        Reject obvious badges, site chrome, placeholders, and after-sale media.
+        """
+        if not url:
+            return False
+
+        clean = url.split("?", 1)[0].lower()
+
+        if not clean.endswith((".jpg", ".jpeg", ".png", ".webp", ".avif")):
+            return False
+
+        rejected_parts = (
+            "/images/aftersale/",
+            "/images/discount-lable/",
+            "/uploads/customimage/",
+            "/images/logo",
+            "/images/icon",
+            "spinner",
+            "loading",
+            "placeholder",
+        )
+
+        return not any(part in clean for part in rejected_parts)
+
+    def _candidate_images_from_container(self, container) -> List[str]:
+        """
+        Collect valid image URLs from a small product/gallery container.
+        """
+        candidates: List[str] = []
+        seen = set()
+
+        def add(candidate: Optional[str]) -> None:
+            if not candidate:
+                return
+
+            absolute = urljoin(self.base_url, candidate.strip())
+            if (
+                absolute not in seen
+                and self._is_product_image_url(absolute)
+            ):
+                seen.add(absolute)
+                candidates.append(absolute)
+
+        if not container:
+            return candidates
+
+        for element in container.select("img, source"):
+            add(self._image_url_from_element(element))
+            add(self._image_url_from_style(element))
+
+        for anchor in container.select("a[href]"):
+            add(anchor.get("href"))
+            add(self._image_url_from_style(anchor))
+
+        for element in container.select('[style*="background-image"]'):
+            add(self._image_url_from_style(element))
+
+        add(self._image_url_from_style(container))
+        return candidates
+
+    def _find_product_image_near_anchor(self, anchor) -> Optional[str]:
+        """
+        Find the first valid product thumbnail around a category product link.
+        """
+        containers = [anchor]
+        parent = anchor.parent
+        for _ in range(4):
+            if not parent:
+                break
+            containers.append(parent)
+            parent = parent.parent
+
+        for container in containers:
+            candidates = self._candidate_images_from_container(container)
+            if candidates:
+                return candidates[0]
+
+        return None
+
+    def _extract_gallery_images(self, soup) -> List[str]:
+        """
+        Extract product-gallery images while preserving page order.
+        """
+        images: List[str] = []
+        seen = set()
+
+        def add(candidate: Optional[str]) -> None:
+            if not candidate:
+                return
+
+            absolute = urljoin(self.base_url, candidate.strip())
+            if (
+                absolute not in seen
+                and self._is_product_image_url(absolute)
+            ):
+                seen.add(absolute)
+                images.append(absolute)
+
+        for element in soup.select(self.CONFIG["selectors"]["images"]):
+            add(self._image_url_from_element(element))
+            add(self._image_url_from_style(element))
+
+            parent_link = element.find_parent("a")
+            if parent_link:
+                add(parent_link.get("href"))
+
+        for container in soup.select(
+            "div.gallery-shell, "
+            "div.product-gallery, "
+            "div.product-images"
+        ):
+            for candidate in self._candidate_images_from_container(container):
+                add(candidate)
+
+        # Layout-change fallback: only explicit /Uploads/Product/ assets.
+        # /Uploads/ProductCategory/ is intentionally excluded because the
+        # current site also uses it for non-gallery instructional banners.
+        if not images:
+            for element in soup.select(
+                "img, source, [style*='background-image']"
+            ):
+                candidate = (
+                    self._image_url_from_element(element)
+                    or self._image_url_from_style(element)
+                )
+                if not candidate:
+                    continue
+
+                clean = candidate.split("?", 1)[0].lower()
+                if "/uploads/product/" in clean:
+                    add(candidate)
+
+        return images
 
     async def _extract_product_data(self, context: BeautifulSoupCrawlingContext) -> CrawledData:
         """
         Extracts all static and dynamic data from a product page.
-        
+
         Args:
             context: The Crawlee crawling context containing the parsed HTML.
-            
+
         Returns:
             A CrawledData object populated with product details.
-            
+
         Raises:
             Exception: If critical data extraction fails.
         """
         soup = context.soup
         product_url = context.request.url
-        
-        # --- 1. Extract SKU ---
+        normalized_url = remove_query_params(product_url).rstrip("/")
+
+        # --- 1. Extract Title ---
+        title_el = soup.select_one(self.CONFIG["selectors"]["title"])
+        title = title_el.get_text(strip=True) if title_el else "No Title"
+
+        # --- 2. Extract SKU ---
         sku = None
-        # Method A: Regex from URL
-        sku_match = re.search(r'/product-detail/(\d+)', product_url)
+
+        # Method A: Legacy URL pattern, kept for backward compatibility.
+        sku_match = re.search(r"/product-detail/(\d+)", normalized_url)
         if sku_match:
             sku = sku_match.group(1)
-        
-        # Method B: Meta Tag
+
+        # Method B: Product SKU meta tag, if the site provides one.
         if not sku:
             meta_sku = soup.select_one('meta[name="product-sku"]')
             if meta_sku:
-                sku = meta_sku.get('content', '').strip()
-        
-        # Method C: Fallback to text extraction
+                candidate = meta_sku.get("content", "").strip()
+                if candidate:
+                    sku = candidate
+
+        # Method C: Extract a SKU-like token from the product title.
+        # Only accept alphanumeric tokens that contain at least one digit,
+        # so words such as "Liquid" are not incorrectly treated as SKUs.
         if not sku:
             sku_el = soup.select_one(self.CONFIG["selectors"]["sku"])
-            if sku_el:
-                txt = sku_el.get_text(strip=True)
-                parts = txt.split()
-                # Assume the last alphanumeric part is the SKU
-                if parts and re.match(r'^[A-Za-z0-9\-]+$', parts[-1]):
-                    sku = parts[-1]
-                else:
-                    normalized_url = remove_query_params(product_url).rstrip("/")
-                    fallback_hash = hashlib.sha256(
-                        normalized_url.encode("utf-8")
-                    ).hexdigest()[:16]
+            sku_text = sku_el.get_text(strip=True) if sku_el else title
+            parts = sku_text.split()
 
-                    sku = f"unknown_{fallback_hash}"
-            else:
-                normalized_url = remove_query_params(product_url).rstrip("/")
-                fallback_hash = hashlib.sha256(
-                    normalized_url.encode("utf-8")
-                ).hexdigest()[:16]
+            if parts:
+                candidate = parts[-1]
+                if re.fullmatch(r"(?=.*\d)[A-Za-z0-9-]+", candidate):
+                    sku = candidate
 
-                sku = f"unknown_{fallback_hash}"
-                logger.warning(f"SKU not found in URL, meta, or text for: {product_url}")
+        # Method D: Current Mashhad Leather product URLs end with a numeric
+        # internal product ID. Use it as a stable fallback identifier.
+        if not sku:
+            path_id = urlparse(normalized_url).path.rstrip("/").split("/")[-1]
+            if path_id.isdigit():
+                sku = f"product_{path_id}"
 
-        # --- 2. Extract Title ---
-        title_el = soup.select_one(self.CONFIG["selectors"]["title"])
-        title = title_el.get_text(strip=True) if title_el else "No Title"
-        
+        # Method E: Last-resort deterministic hash of the canonical URL.
+        if not sku:
+            fallback_hash = hashlib.sha256(
+                normalized_url.encode("utf-8")
+            ).hexdigest()[:16]
+            sku = f"unknown_{fallback_hash}"
+            logger.warning(f"SKU not found in URL, meta, or title for: {product_url}")
+
         # --- 3. Extract Listing Image (from cache populated in Category handler) ---
-        listing_image = self.listing_image_cache.get(context.request.url, None)
-        
+        listing_image = self.listing_image_cache.get(normalized_url)
+
         # --- 4. Extract All Gallery Images ---
-        images = []
-        images_set = set() # Use set to avoid duplicates
-        image_els = soup.select(self.CONFIG["selectors"]["images"])
-        for img_el in image_els:
-            img_src = img_el.get("src")
-            if img_src:
-                # Normalize URL to absolute
-                images_set.add(urljoin(self.base_url, img_src))
-        images = list(images_set)
-        
+        images = self._extract_gallery_images(soup)
+
+        # If the category-page thumbnail was not cached, use the first real
+        # product image as the listing image.
+        if not listing_image and images:
+            listing_image = images[0]
+
+        # Conversely, if the page exposes only a listing image, do not leave
+        # the product's images list empty.
+        if listing_image and not images:
+            if self._is_product_image_url(listing_image):
+                images = [listing_image]
+
+        logger.info(
+            f"Extracted {len(images)} images for SKU {sku}"
+            + (
+                f" | listing image: {listing_image}"
+                if listing_image
+                else " | listing image: none"
+            )
+        )
+
         # --- 5. Extract Category ---
-        category = ''
+        category = ""
         category_el = soup.select_one(self.CONFIG["selectors"]["category"])
         if category_el:
             category = category_el.get_text(strip=True)
-            
+
         # --- 6. Extract Description ---
-        description = ''
+        description = ""
         description_el = soup.select_one(self.CONFIG["selectors"]["description"])
         if description_el:
-            # Replace <br> tags with newlines for cleaner text
-            for br in description_el.find_all('br'):
-                br.replace_with('\n')
+            # Replace <br> tags with newlines for cleaner text.
+            for br in description_el.find_all("br"):
+                br.replace_with("\n")
+
             description = description_el.get_text(separator="\n", strip=True)
-            # Clean up multiple newlines
-            description = re.sub(r'\n\s*\n', '\n\n', description)
-            
+            description = re.sub(r"\n\s*\n", "\n\n", description)
+
         # --- 7. Extract Variants (Dynamic Data) ---
         variants = await self.extract_variants(context, sku)
-        
+
         return CrawledData(
             sku=sku,
             title=title,
             ts=datetime.utcnow(),
-            url=remove_query_params(product_url),
+            url=normalized_url,
             source=self.CONFIG["site_name"],
             listing_image=listing_image,
             images=images,
             category=category,
             description=description,
-            variants=variants
+            variants=variants,
         )
 
-    async def extract_variants(self, context: BeautifulSoupCrawlingContext, sku: str) -> List[ProductVariant]:
-        """
-        Extracts variants by checking for color/size selectors.
-        If dynamic selection exists, it calls the backend API to get specific prices/stocks.
-        
-        Args:
-            context: The Crawlee crawling context.
-            sku: The base product SKU.
-            
-        Returns:
-            A list of ProductVariant objects.
-        """
+    async def extract_variants(
+        self,
+        context: BeautifulSoupCrawlingContext,
+        sku: str,
+    ) -> List[ProductVariant]:
         variants: List[ProductVariant] = []
         soup = context.soup
-        
-        # Use a single aiohttp session for all API calls in this product to reuse connections
-        async with aiohttp.ClientSession() as session:
-            color_option = soup.select_one(self.CONFIG["selectors"]["color_option"])
-            size_options = soup.select_one(self.CONFIG["selectors"]["size_options"])
-            
-            # Case 1: Simple Product (No color/size selector)
-            if not color_option:
-                variant = self._process_simple_product(soup, sku)
-                if variant:
-                    variants.append(variant)
-                return variants
-                
-            # Case 2: Product with Color Options
-            color_labels = color_option.select("label input") if color_option else []
-            if not color_labels:
-                # Fallback if selector is present but empty
-                variant = self._process_simple_product(soup, sku)
-                if variant:
-                    variants.append(variant)
-                return variants
-                
-            # Iterate through each color option
+
+        color_option = soup.select_one(self.CONFIG["selectors"]["color_option"])
+        size_options = soup.select_one(self.CONFIG["selectors"]["size_options"])
+        has_sizes = bool(
+            size_options
+            and size_options.select("li, label, input, option")
+        )
+
+        if not color_option:
+            variant = self._process_simple_product(soup, sku)
+            if variant:
+                variants.append(variant)
+            return variants
+
+        color_labels = color_option.select("label input")
+        if not color_labels:
+            logger.warning(f"Color selector exists but contains no color inputs for SKU {sku}")
+            return variants
+
+        async with aiohttp.ClientSession(
+            headers={"Accept-Encoding": "gzip, deflate"}
+        ) as session:
             for inp in color_labels:
                 try:
-                    color_variants = await self._process_color(inp, sku, size_options, session)
-                    if color_variants:
-                        variants.extend(color_variants)
+                    color_variants = await self._process_color(
+                        inp, sku, has_sizes, session
+                    )
+                    variants.extend(color_variants)
                 except Exception as e:
-                    logger.warning(f"Failed to process color variant: {e}")
-                    # If processing fails, try fallback simple product only if no variants exist yet
-                    if not variants:
-                        variant = self._process_simple_product(soup, sku)
-                        if variant:
-                            variants.append(variant)
-            
-            # Final fallback if no variants were found at all
-            if not variants:
-                variant = self._process_simple_product(soup, sku)
-                if variant:
-                    variants.append(variant)
-                    
-        return variants        
+                    logger.warning(
+                        f"Failed to process a color variant for SKU {sku}: {e}"
+                    )
+                    continue
 
-    async def _get_price_async(self, session: aiohttp.ClientSession, product_id: str, color_id: str) -> Dict[str, str]:
+        if not variants:
+            logger.warning(
+                f"No variants extracted for dynamic product SKU {sku}; base product will still be stored."
+            )
+
+        return variants
+
+    async def _get_price_async(
+        self,
+        session: aiohttp.ClientSession,
+        product_id: str,
+        color_id: str,
+    ) -> Optional[Dict[str, Any]]:
         """
         Fetches price and discounted price from the website's internal API.
-        
-        Args:
-            session: Active aiohttp ClientSession.
-            product_id: The product ID.
-            color_id: The selected color ID.
-            
+
         Returns:
-            A dictionary containing 'price' and 'discountPrice' strings.
+            A dictionary on success, or None if the API request fails.
         """
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "X-Requested-With": "XMLHttpRequest",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept-Encoding": "gzip, deflate",
         }
+
         try:
-            # Use timeout to prevent hanging on slow responses
             async with session.post(
-                "https://www.mashadleather.com/Products/ChangePriceByColor",
+                f"{self.base_url}/Products/ChangePriceByColor",
                 headers=headers,
                 data={"id": product_id, "colorId": color_id},
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    logger.warning(f"API returned status {response.status} for product {product_id}")
-                    return {}
-        except Exception as e:
-            logger.warning(f"Error fetching price for product {product_id}: {e}")
-            return {}
+                if response.status != 200:
+                    logger.warning(
+                        f"Price API returned status {response.status} "
+                        f"for product {product_id}, color {color_id}"
+                    )
+                    return None
 
-    async def _get_sizes_async(self, session: aiohttp.ClientSession, color_id: str, product_id: str) -> list:
+                data = await response.json(content_type=None)
+                if not isinstance(data, dict):
+                    logger.warning(
+                        f"Unexpected price API response for product {product_id}, "
+                        f"color {color_id}: {type(data).__name__}"
+                    )
+                    return None
+
+                return data
+
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            logger.warning(
+                f"Error fetching price for product {product_id}, "
+                f"color {color_id}: {e}"
+            )
+            return None
+
+    async def _get_sizes_async(
+        self,
+        session: aiohttp.ClientSession,
+        color_id: str,
+        product_id: str,
+    ) -> Optional[List[Dict[str, Any]]]:
         """
         Fetches available sizes and stock quantities for a specific color.
-        
-        Args:
-            session: Active aiohttp ClientSession.
-            color_id: The selected color ID.
-            product_id: The product ID.
-            
+
         Returns:
-            A list of dictionaries containing size details.
+            A list on success (possibly empty), or None if the API request fails.
         """
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept-Encoding": "gzip, deflate",
         }
+
         try:
             async with session.get(
-                f"https://www.mashadleather.com/Products/GetSizesForColor?colorId={color_id}&productId={product_id}",
+                f"{self.base_url}/Products/GetSizesForColor",
+                params={"colorId": color_id, "productId": product_id},
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    logger.warning(f"API returned status {response.status} for sizes")
-                    return []
-        except Exception as e:
-            logger.warning(f"Error fetching sizes: {e}")
-            return []
+                if response.status != 200:
+                    logger.warning(
+                        f"Size API returned status {response.status} "
+                        f"for product {product_id}, color {color_id}"
+                    )
+                    return None
 
-    async def _process_color(self, inp, sku: str, size_options, session: aiohttp.ClientSession) -> List[ProductVariant]:
+                data = await response.json(content_type=None)
+                if not isinstance(data, list):
+                    logger.warning(
+                        f"Unexpected size API response for product {product_id}, "
+                        f"color {color_id}: {type(data).__name__}"
+                    )
+                    return None
+
+                return data
+
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            logger.warning(
+                f"Error fetching sizes for product {product_id}, "
+                f"color {color_id}: {e}"
+            )
+            return None
+
+    async def _process_color(
+        self,
+        inp,
+        sku: str,
+        has_sizes: bool,
+        session: aiohttp.ClientSession,
+    ) -> List[ProductVariant]:
         """
-        Processes a single color option to generate variants based on available sizes.
-        
-        Args:
-            inp: The HTML element representing the color input.
-            sku: Base product SKU.
-            size_options: HTML element for size options (if any).
-            session: Active aiohttp ClientSession.
-            
-        Returns:
-            A list of ProductVariant objects for this color.
+        Processes one color option and returns all available variants for it.
         """
-        variants = []
+        variants: List[ProductVariant] = []
+
         color_id = inp.get("id")
         product_id = inp.get("data-model-id")
         color_name = inp.get("data-selected-color-title") or ""
-        
-        # Clean color name for use in SKU
-        safe_color = color_name.replace(" ", "_").replace("(", "").replace(")", "")
-        
+
         if not color_id or not product_id:
-            return variants 
-        
-        # --- Scenario A: Product has Sizes (Dynamic Fetch) ---
-        if size_options:
-            try:
-                # Fetch available sizes for this color
-                size_resp = await self._get_sizes_async(session, color_id, product_id)
-                
-                if not size_resp or not isinstance(size_resp, list):
-                    logger.warning(f"Skipping color '{color_name}' (failed to fetch sizes)")
-                    return variants
-                
-                # For each size, fetch the specific price/stock
-                for size in size_resp:
-                    # Note: The API might return price for the whole color, 
-                    # or specific size. Here we assume price is per color but stock is per size.
-                    price_data = await self._get_price_async(session, product_id, color_id)
-                    
-                    variants.append(ProductVariant(
-                        variant_sku=f"{sku}_{size.get('Title', 'Unknown')}_{safe_color}",
-                        size=size.get("Title") or "",
+            raise ValueError(
+                f"Missing color/product identifier for SKU {sku}: "
+                f"color_id={color_id!r}, product_id={product_id!r}"
+            )
+
+        # Keep the original color text in the variant SKU while replacing
+        # characters that are awkward as separators.
+        safe_color = color_name.replace(" ", "_").replace("(", "").replace(")", "")
+        if not safe_color:
+            safe_color = str(color_id)
+
+        # Price is selected by product + color, not by size, so fetch it once.
+        price_data = await self._get_price_async(session, product_id, color_id)
+        if price_data is None:
+            logger.warning(
+                f"Price API failed for SKU {sku}, color {color_name or color_id}; price fields will be empty."
+            )
+            price_data = {}
+
+        price = str(price_data.get("price") or "")
+        discounted_price = str(price_data.get("discountPrice") or "")
+
+        # Scenario A: Product has sizes.
+        if has_sizes:
+            size_resp = await self._get_sizes_async(session, color_id, product_id)
+            if size_resp is None:
+                logger.warning(
+                    f"Size API failed for SKU {sku}, color {color_name or color_id}; skipping this color."
+                )
+                return variants
+
+            if not size_resp:
+                logger.info(
+                    f"No available sizes for SKU {sku}, color {color_name or color_id}"
+                )
+                return variants
+
+            for size_data in size_resp:
+                if not isinstance(size_data, dict):
+                    logger.warning(
+                        f"Ignoring malformed size entry for SKU {sku}, "
+                        f"color {color_name or color_id}: {size_data!r}"
+                    )
+                    continue
+
+                size_title = str(size_data.get("Title") or "")
+
+                try:
+                    quantity = int(size_data.get("Quantity", 0) or 0)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        f"Invalid quantity for SKU {sku}, size {size_title!r}, "
+                        f"color {color_name or color_id}; using 0"
+                    )
+                    quantity = 0
+
+                safe_size = size_title.replace(" ", "_") or "Unknown"
+
+                variants.append(
+                    ProductVariant(
+                        variant_sku=f"{sku}_{safe_size}_{safe_color}",
+                        size=size_title,
                         color=color_name,
-                        quantity=int(size.get("Quantity", 0) or 0),
-                        price=price_data.get("price") or "",
-                        discounted_price=price_data.get("discountPrice") or "",
-                    ))
-            except Exception as e:
-                logger.warning(f"Skipping color '{color_name}' due to error: {e}")
+                        quantity=quantity,
+                        price=price,
+                        discounted_price=discounted_price,
+                    )
+                )
+
             return variants
-            
-        # --- Scenario B: No Sizes, Just Color ---
-        else:
-            price_data = await self._get_price_async(session, product_id, color_id)
-            
-            # Check if the input element is disabled (out of stock)
-            is_disabled = "disabled" in inp.attrs
-            quantity = 0 if is_disabled else 1
-            
-            variants.append(ProductVariant(
+
+        # Scenario B: Product has color but no size selector.
+        is_disabled = "disabled" in inp.attrs
+        quantity = 0 if is_disabled else 1
+
+        variants.append(
+            ProductVariant(
                 variant_sku=f"{sku}_{safe_color}",
                 size="",
                 color=color_name,
                 quantity=quantity,
-                price=price_data.get("price") or "",
-                discounted_price=price_data.get("discountPrice") or "",
-            ))
-            return variants
-    
+                price=price,
+                discounted_price=discounted_price,
+            )
+        )
+
+        return variants
+
     def _process_simple_product(self, soup, sku: str) -> Optional[ProductVariant]:
         """
-        Handles products that do not have dynamic variants (no color/size selection).
-        Extracts price directly from the HTML.
-        
-        Args:
-            soup: BeautifulSoup object of the product page.
-            sku: Product SKU.
-            
-        Returns:
-            A ProductVariant object or None if data cannot be extracted.
+        Handles products that do not have dynamic color variants.
+        Extracts the current/original price directly from the HTML.
         """
-        price_el = soup.select_one(self.CONFIG["selectors"]["price"]) if self.CONFIG["selectors"].get("price") else None
-        discounted_el = soup.select_one(self.CONFIG["selectors"]["discounted_price"]) if self.CONFIG["selectors"].get("discounted_price") else None
-        
-        price = price_el.get_text(strip=True) if price_el else ""
-        discounted_price = discounted_el.get_text(strip=True) if discounted_el else ""
-        
-        # Logic to handle cases where discounted price is shown but original isn't
-        if discounted_price and not price:
-            price = discounted_price
+        current_price_el = (
+            soup.select_one(self.CONFIG["selectors"]["price"])
+            if self.CONFIG["selectors"].get("price")
+            else None
+        )
+        original_price_el = (
+            soup.select_one(self.CONFIG["selectors"]["main_price"])
+            if self.CONFIG["selectors"].get("main_price")
+            else None
+        )
+
+        current_price = current_price_el.get_text(strip=True) if current_price_el else ""
+        original_price = original_price_el.get_text(strip=True) if original_price_el else ""
+
+        if original_price and current_price:
+            price = original_price
+            discounted_price = current_price
+        else:
+            price = current_price or original_price
             discounted_price = ""
-        elif price and discounted_price and price == discounted_price:
-            # If prices are same, treat as non-discounted
-            discounted_price = ""
-            
-        # Check stock quantity if available
+
+        # #txtCount is present on purchasable simple-product pages. If it is
+        # missing or disabled, treat the product as unavailable.
         txt_count = soup.select_one("#txtCount")
-        quantity = 1 if txt_count else 0 # Default to 1 if count not found
-        
+        quantity = 0 if not txt_count or txt_count.has_attr("disabled") else 1
+
         return ProductVariant(
             variant_sku=sku,
             size="",
@@ -683,7 +1099,7 @@ class MashhadLeather:
             
         except Exception as e:
             console.print(Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"))
-            logger.error(f"Crawler failed: {e}", exc_info=True)
+            logger.exception(f"Crawler failed: {e}")
 
 if __name__ == "__main__":
     # Ensure logs directory exists

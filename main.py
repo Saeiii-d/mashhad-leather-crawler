@@ -28,7 +28,7 @@ import os
 import asyncio
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse, urljoin, parse_qs, urlencode
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
 import hashlib
 
@@ -155,11 +155,19 @@ class MashhadLeather:
 
     def __init__(self, mode: str = "crawl"):
         """
-        Initialize the Crawler.
-        
+        Initialize the crawler.
+
         Args:
-            mode: Operational mode (e.g., 'crawl', 'update').
+            mode: Operational mode. Currently only "crawl" is supported.
+
+        Raises:
+            ValueError: If an unsupported mode is provided.
         """
+        if mode != "crawl":
+            raise ValueError(
+                f"Unsupported mode: {mode!r}. Currently only 'crawl' is supported."
+            )
+
         self.mode = mode
         self.router = Router[BeautifulSoupCrawlingContext]()
         self.dataset: Optional[Dataset] = None
@@ -442,7 +450,7 @@ class MashhadLeather:
                         {
                             "status": "crawled",
                             "url": data.url,
-                            "timestamp": str(datetime.utcnow()),
+                            "timestamp": str(datetime.now(timezone.utc)),
                         },
                     )
                 except Exception:
@@ -766,7 +774,7 @@ class MashhadLeather:
         return CrawledData(
             sku=sku,
             title=title,
-            ts=datetime.utcnow(),
+            ts=datetime.now(timezone.utc),
             url=normalized_url,
             source=self.CONFIG["site_name"],
             listing_image=listing_image,
@@ -1098,8 +1106,15 @@ class MashhadLeather:
             logger.info("Crawling finished successfully.")
             
         except Exception as e:
-            console.print(Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"))
+            console.print(
+                Panel(
+                    f"[red]Error: {e}[/red]",
+                    title="Error",
+                    border_style="red",
+                )
+            )
             logger.exception(f"Crawler failed: {e}")
+            raise
 
 if __name__ == "__main__":
     # Ensure logs directory exists

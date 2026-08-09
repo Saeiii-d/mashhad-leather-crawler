@@ -3,12 +3,12 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Crawlee](https://img.shields.io/badge/Powered%20by-Crawlee-green.svg)](https://crawlee.dev/)
 
-An asynchronous web crawler built with **Crawlee** and **aiohttp** designed to extract comprehensive product data from **Mashhad Leather**. It handles static HTML parsing for basic details and dynamic API calls for real-time pricing and stock levels.
+An asynchronous web crawler built with **Crawlee** and **aiohttp** to extract structured product data from **Mashhad Leather**. It combines static HTML parsing for product metadata with direct API requests for current variant pricing and, where available, size and stock-quantity data.
 
 ## Features
 
 - **Asynchronous Crawling**: Built on `crawlee` for asynchronous and concurrent crawling.
-- **Dynamic Data Extraction**: Sends direct asynchronous requests to internal API endpoints to retrieve current prices and stock quantities for product variants.
+- **Dynamic Variant Extraction**: Sends direct asynchronous requests to internal API endpoints to retrieve current variant prices and, when exposed by the site, size and stock-quantity data.
 - **Image Handling**: Extracts main listing images and full gallery images, handling lazy-loading attributes.
 - **Pagination Support**: Automatically detects and crawls paginated category pages.
 - **Structured Storage**: Saves extracted records to a Crawlee Dataset and crawl metadata to a `KeyValueStore`.
@@ -88,12 +88,12 @@ CONFIG = {
 
 ## 🛠️ System Architecture
 
-To ensure data integrity and high performance, this project implements a multi-layered extraction strategy:
+The crawler uses a layered extraction strategy to separate page discovery, static HTML parsing, and variant-specific API requests:
 
 - **Discovery Layer**: Utilizes Crawlee's `BeautifulSoupCrawler` and custom `Router` logic to efficiently navigate paginated categories and enqueue product URLs.
-- **Static Extraction**: Parses the DOM for stable metadata such as SKUs, Titles, and Descriptions using optimized CSS selectors.
+- **Static Extraction**: Parses the DOM for product metadata such as SKUs, titles, descriptions, categories, and images using CSS selectors.
 - **Direct API Requests**: Uses `aiohttp` to request data from internal endpoints such as `ChangePriceByColor` and `GetSizesForColor`.
-- **Observability**: Integrated `loguru` for file-rotated logging and `rich` for real-time terminal progress monitoring, ensuring every crawl is traceable.
+- **Observability**: Uses `loguru` for file-rotated logs and console logging, while `rich` provides formatted configuration summaries and error panels in the terminal.
 
 ## Tech Stack
 
@@ -103,6 +103,12 @@ To ensure data integrity and high performance, this project implements a multi-l
 - **HTML Parsing**: BeautifulSoup4
 - **Logging**: loguru
 - **CLI**: rich (for pretty terminal output)
+
+## Related Article
+
+For a detailed explanation of the crawler's architecture, API workflow, design decisions, and limitations, see:
+
+**[Combining HTML Crawling with Direct API Requests for Product Variants](https://medium.com/@saeiiid.khazaei/building-a-high-performance-hybrid-web-crawler-with-api-interception-3d3e357da55b)**
 
 ## Author
 
